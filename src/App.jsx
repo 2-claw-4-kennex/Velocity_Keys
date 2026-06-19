@@ -42,9 +42,12 @@ function getWords(text) {
 }
 
 function getCurrentWordIdx(words, typedLen) {
+  // Find the word that owns the cursor position.
+  // Cursor belongs to word i while typedLen is in range [word[i].start, word[i+1].start).
+  // Once typedLen >= word[i+1].start the cursor has moved into word i+1.
   for (let i = 0; i < words.length; i++) {
-    const boundary = i < words.length - 1 ? words[i + 1].start : words[i].end;
-    if (typedLen <= boundary) return i;
+    const nextStart = i < words.length - 1 ? words[i + 1].start : Infinity;
+    if (typedLen < nextStart) return i;
   }
   return words.length - 1;
 }
@@ -678,15 +681,31 @@ export default function TypeForge() {
       const pos = prev.length;
       if (pos >= text.length) return;
 
+      // Always find which word the cursor is currently inside
+      const cwIdx = getCurrentWordIdx(wordsRef.current, pos);
+      const cw    = wordsRef.current[cwIdx];
+
       if (ch === " ") {
-        const cwIdx    = getCurrentWordIdx(wordsRef.current, pos);
-        const cw       = wordsRef.current[cwIdx];
+        // Space only allowed when current word is fully and correctly typed
         if (!cw) return;
-        if (pos !== cw.end) { setWordError(true); setTimeout(() => setWordError(false), 500); return; }
+        if (pos !== cw.end) {
+          setWordError(true); setTimeout(() => setWordError(false), 500); return;
+        }
         const wordTyped  = prev.slice(cw.start, cw.end);
         const wordTarget = text.slice(cw.start, cw.end);
-        if (wordTyped !== wordTarget) { setWordError(true); setTimeout(() => setWordError(false), 500); return; }
+        if (wordTyped !== wordTarget) {
+          setWordError(true); setTimeout(() => setWordError(false), 500); return;
+        }
         if (text[pos] !== " ") return;
+      } else {
+        // Non-space character: must still be inside the current word's bounds.
+        // If pos >= cw.end it means we've reached the space after the word.
+        // The only way to pass that boundary is via a correct space keystroke above.
+        // Block if cursor has somehow reached or passed word end (safety net).
+        if (cw && pos >= cw.end) {
+          // cursor is sitting in the inter-word space — force space to be typed first
+          setWordError(true); setTimeout(() => setWordError(false), 500); return;
+        }
       }
 
       const ok = ch === text[pos];
